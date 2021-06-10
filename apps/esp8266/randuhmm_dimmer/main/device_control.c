@@ -23,19 +23,43 @@
 #include "freertos/queue.h"
 #include "freertos/task.h"
 #include "driver/gpio.h"
+#include "driver/pwm.h"
+
+
+// ESP-12 modules have LED on GPIO2. Change to another GPIO
+// for other boards.
+static const uint32_t pin = 4;
+static os_timer_t ledTimer;
+bool switch_power = true;
+static const uint32_t period = 10000; // in us, so 100 Hz
+uint32_t maxDuty = 10000;
+
+uint8_t targetDutyPercent = 100;
+uint8_t *pTargetDutyPercent = &targetDutyPercent;
+
+uint32_t targetDuty = 10000;
+uint32_t *pTargetDuty = &targetDuty;
+
+uint32_t currentDuty = 0;
+uint32_t *pCurrentDuty = &currentDuty;
+
 
 void change_switch_state(int switch_state)
 {
     if (switch_state == SWITCH_OFF) {
         gpio_set_level(GPIO_OUTPUT_MAINLED, MAINLED_GPIO_OFF);
+        switch_power = false;
     } else {
         gpio_set_level(GPIO_OUTPUT_MAINLED, MAINLED_GPIO_ON);
+        switch_power = true;
     }
 }
 
 void change_switch_level(int level)
 {
     printf("switch level is changed to %d", level);
+    *pTargetDutyPercent = level;
+    *pTargetDuty = (uint32_t)((*pTargetDutyPercent/100.0) * (float)maxDuty);
     return;
 }
 
@@ -135,6 +159,35 @@ void change_led_mode(int noti_led_mode)
     }
 }
 
+void ICACHE_FLASH_ATTR ledTimer_f(void *args) {
+  if(switch_power) {
+    if(currentDuty == targetDuty) {
+        return;
+    } else if (currentDuty < targetDuty) {
+        currentDuty += maxDuty * 0.02;
+        if(currentDuty > targetDuty) {
+            currentDuty = targetDuty;
+        }
+    } else if(currentDuty > targetDuty) {
+        currentDuty -= maxDuty * 0.02;
+        if(currentDuty < targetDuty) {
+            currentDuty = targetDuty;
+        }
+    }
+  } else {
+    if(currentDuty == 0) {
+      return;
+    } else {
+        currentDuty -= maxDuty * 0.02;
+        if(currentDuty < 0 || currentDuty > maxDuty) {
+            currentDuty = 0;
+        }
+    }
+  }
+  pwm_set_duty(0, *pCurrentDuty);
+  pwm_start();
+}
+
 void iot_gpio_init(void)
 {
 	gpio_config_t io_conf;
@@ -145,11 +198,13 @@ void iot_gpio_init(void)
 	io_conf.pull_down_en = 1;
 	io_conf.pull_up_en = 0;
 	gpio_config(&io_conf);
+
 	io_conf.pin_bit_mask = 1 << GPIO_OUTPUT_MAINLED_0;
 	gpio_config(&io_conf);
 
 	io_conf.pin_bit_mask = 1 << GPIO_OUTPUT_NOUSE1;
 	gpio_config(&io_conf);
+
 	io_conf.pin_bit_mask = 1 << GPIO_OUTPUT_NOUSE2;
 	gpio_config(&io_conf);
 
@@ -167,6 +222,16 @@ void iot_gpio_init(void)
 
 	gpio_set_level(GPIO_OUTPUT_MAINLED, MAINLED_GPIO_ON);
 	gpio_set_level(GPIO_OUTPUT_MAINLED_0, 0);
+
+    // setup pwm
+    // init gpio subsytem
+    // gpio_init();
+    pwm_init(period, pCurrentDuty, 1, &pin);
+    pwm_set_phase(0, 0);
+
+    // // setup timer (30ms, repeating)
+    os_timer_setfn(&ledTimer, (os_timer_func_t *)ledTimer_f, NULL);
+    os_timer_arm(&ledTimer, 30, 1);
 }
 
 

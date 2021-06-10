@@ -49,6 +49,8 @@
 #define GPIO_OUTPUT_NOUSE1 14
 #define GPIO_OUTPUT_NOUSE2 12
 
+#define GPIO_OUTPUT_PWM 4
+
 #endif
 
 enum switch_onoff_state {

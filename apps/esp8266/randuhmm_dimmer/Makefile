@@ -3,7 +3,7 @@
 # project subdirectory.
 #
 
-PROJECT_NAME := switch_example
+PROJECT_NAME := randuhmm_dimmer
 
 EXTRA_COMPONENT_DIRS := ${IDF_PATH}/../../iot-core
 
