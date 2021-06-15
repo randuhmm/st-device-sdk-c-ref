@@ -25,20 +25,21 @@
 #include "driver/gpio.h"
 #include "driver/pwm.h"
 
+#include <math.h>
 
 // ESP-12 modules have LED on GPIO2. Change to another GPIO
 // for other boards.
-static const uint32_t pin = 4;
+static const uint32_t pin = GPIO_OUTPUT_PWM;
 static os_timer_t ledTimer;
-bool switch_power = true;
-static const uint32_t period = 10000; // in us, so 100 Hz
-uint32_t maxDuty = 10000;
+bool switchPower = false;
+static const uint32_t period = PWM_PERIOD;
+
+uint32_t gammaTable[PWM_MAX_LEVEL + 1];
 
 uint8_t targetDutyPercent = 100;
-uint8_t *pTargetDutyPercent = &targetDutyPercent;
 
-uint32_t targetDuty = 10000;
-uint32_t *pTargetDuty = &targetDuty;
+uint32_t targetLevel = PWM_MAX_LEVEL;
+uint32_t currentLevel = 0;
 
 uint32_t currentDuty = 0;
 uint32_t *pCurrentDuty = &currentDuty;
@@ -48,18 +49,18 @@ void change_switch_state(int switch_state)
 {
     if (switch_state == SWITCH_OFF) {
         gpio_set_level(GPIO_OUTPUT_MAINLED, MAINLED_GPIO_OFF);
-        switch_power = false;
+        switchPower = false;
     } else {
         gpio_set_level(GPIO_OUTPUT_MAINLED, MAINLED_GPIO_ON);
-        switch_power = true;
+        switchPower = true;
     }
 }
 
 void change_switch_level(int level)
 {
     printf("switch level is changed to %d", level);
-    *pTargetDutyPercent = level;
-    *pTargetDuty = (uint32_t)((*pTargetDutyPercent/100.0) * (float)maxDuty);
+    targetDutyPercent = level;
+    
     return;
 }
 
@@ -160,32 +161,33 @@ void change_led_mode(int noti_led_mode)
 }
 
 void ICACHE_FLASH_ATTR ledTimer_f(void *args) {
-  if(switch_power) {
-    if(currentDuty == targetDuty) {
-        return;
-    } else if (currentDuty < targetDuty) {
-        currentDuty += maxDuty * 0.02;
-        if(currentDuty > targetDuty) {
-            currentDuty = targetDuty;
+    if(switchPower) {
+        if(currentLevel == targetLevel) {
+            return;
+        } else if (currentLevel < targetLevel) {
+            currentLevel += PWM_MAX_LEVEL * PWM_ANIMATION_VELOCITY;
+            if(currentLevel > targetLevel) {
+                currentLevel = targetLevel;
+            }
+        } else if(currentLevel > targetLevel) {
+            currentLevel -= PWM_MAX_LEVEL * PWM_ANIMATION_VELOCITY;
+            if(currentLevel < targetLevel || currentLevel > PWM_MAX_LEVEL) {
+                currentLevel = targetLevel;
+            }
         }
-    } else if(currentDuty > targetDuty) {
-        currentDuty -= maxDuty * 0.02;
-        if(currentDuty < targetDuty) {
-            currentDuty = targetDuty;
-        }
-    }
-  } else {
-    if(currentDuty == 0) {
-      return;
     } else {
-        currentDuty -= maxDuty * 0.02;
-        if(currentDuty < 0 || currentDuty > maxDuty) {
-            currentDuty = 0;
+        if(currentLevel == 0) {
+            return;
+        } else {
+            currentLevel -= PWM_MAX_LEVEL * PWM_ANIMATION_VELOCITY;
+            if(currentLevel < 0 || currentLevel > PWM_MAX_LEVEL) {
+                currentLevel = 0;
+            }
         }
     }
-  }
-  pwm_set_duty(0, *pCurrentDuty);
-  pwm_start();
+    *pCurrentDuty = gammaTable[currentLevel];
+    pwm_set_duty(0, *pCurrentDuty);
+    pwm_start();
 }
 
 void iot_gpio_init(void)
@@ -225,9 +227,14 @@ void iot_gpio_init(void)
 
     // setup pwm
     // init gpio subsytem
-    // gpio_init();
     pwm_init(period, pCurrentDuty, 1, &pin);
     pwm_set_phase(0, 0);
+
+    // setup gamma table
+    for(int i = 0; i <= PWM_MAX_LEVEL; i++) {
+        gammaTable[i] = (uint32_t)(PWM_PERIOD * pow((float)i / PWM_MAX_LEVEL, PWM_GAMMA));
+        printf("%d - %d\n", i, gammaTable[i]);
+    }
 
     // // setup timer (30ms, repeating)
     os_timer_setfn(&ledTimer, (os_timer_func_t *)ledTimer_f, NULL);
