@@ -50,15 +50,16 @@
 #define GPIO_OUTPUT_NOUSE2 12
 
 #define GPIO_OUTPUT_PWM 4
+
+#endif
+
+// PWM defines
 #define PWM_MAX_LEVEL 255
 #define PWM_FREQUENCY 100 // Hz
 #define PWM_PERIOD ( 1000000 / PWM_FREQUENCY )
 #define PWM_GAMMA 3.0
+#define PWM_ANIMATION_PERIOD 30 // ms
 #define PWM_ANIMATION_VELOCITY 0.02
-
-
-
-#endif
 
 enum switch_onoff_state {
     SWITCH_OFF = 0,

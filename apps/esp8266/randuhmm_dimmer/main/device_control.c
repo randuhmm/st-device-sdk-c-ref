@@ -60,8 +60,6 @@ void change_switch_level(int level)
 {
     printf("switch level is changed to %d", level);
     targetDutyPercent = level;
-    
-    return;
 }
 
 int get_button_event(int* button_event_type, int* button_event_count)
@@ -238,7 +236,7 @@ void iot_gpio_init(void)
 
     // // setup timer (30ms, repeating)
     os_timer_setfn(&ledTimer, (os_timer_func_t *)ledTimer_f, NULL);
-    os_timer_arm(&ledTimer, 30, 1);
+    os_timer_arm(&ledTimer, PWM_ANIMATION_PERIOD, 1);
 }
 
 
