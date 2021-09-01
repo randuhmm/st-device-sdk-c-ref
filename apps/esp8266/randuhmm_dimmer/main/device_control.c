@@ -178,7 +178,7 @@ void ICACHE_FLASH_ATTR ledTimer_f(void *args) {
             return;
         } else {
             currentLevel -= PWM_MAX_LEVEL * PWM_ANIMATION_VELOCITY;
-            if(currentLevel < 0 || currentLevel > PWM_MAX_LEVEL) {
+            if(currentLevel > PWM_MAX_LEVEL) {
                 currentLevel = 0;
             }
         }
@@ -188,40 +188,115 @@ void ICACHE_FLASH_ATTR ledTimer_f(void *args) {
     pwm_start();
 }
 
+
+static xQueueHandle gpio_evt_queue = NULL;
+
+static void IRAM_ATTR gpio_isr_handler(void* arg) {
+    uint32_t gpio_num = (uint32_t) arg;
+    xQueueSendFromISR(gpio_evt_queue, &gpio_num, NULL);
+}
+
+
+uint8_t rotary_clk_state;
+uint8_t rotary_dt_state;
+uint8_t rotary_clk = 0;
+uint8_t rotary_dt = 0;
+
+static void gpio_task_example(void* arg)
+{
+    uint32_t io_num;
+    uint8_t level;
+    for(;;) {
+        if(xQueueReceive(gpio_evt_queue, &io_num, portMAX_DELAY)) {
+            level = gpio_get_level(io_num);
+            if(io_num == GPIO_INPUT_ROTARY_CLK && level != rotary_clk_state) {
+                rotary_clk_state = level;
+                if(rotary_clk_state != rotary_dt_state) {
+                    if(rotary_clk_state == 1 && rotary_clk == 1) {
+                        printf("ROTARY CLK\n");
+                        rotary_clk = 2;
+                    } else if(rotary_clk_state == 0) {
+                        rotary_clk = 1;
+                    } else {
+                        rotary_clk = 0;
+                    }
+                }
+            } else if(io_num == GPIO_INPUT_ROTARY_DT && level != rotary_dt_state) {
+                rotary_dt_state = level;
+                if(rotary_dt_state != rotary_clk_state) {
+                    if(rotary_dt_state == 1 && rotary_dt == 1) {
+                        printf("ROTARY DT\n");
+                        rotary_dt = 2;
+                    } else if(rotary_dt_state == 0) {
+                        rotary_dt = 1;
+                    } else {
+                        rotary_dt = 0;
+                    }
+                }
+            }
+        }
+    }
+}
+
 void iot_gpio_init(void)
 {
-	gpio_config_t io_conf;
+    gpio_config_t io_conf;
 
-	io_conf.intr_type = GPIO_INTR_DISABLE;
-	io_conf.mode = GPIO_MODE_OUTPUT;
-	io_conf.pin_bit_mask = 1 << GPIO_OUTPUT_MAINLED;
-	io_conf.pull_down_en = 1;
-	io_conf.pull_up_en = 0;
-	gpio_config(&io_conf);
+    io_conf.intr_type = GPIO_INTR_DISABLE;
+    io_conf.mode = GPIO_MODE_OUTPUT;
+    io_conf.pin_bit_mask = 1 << GPIO_OUTPUT_MAINLED;
+    io_conf.pull_down_en = 1;
+    io_conf.pull_up_en = 0;
+    gpio_config(&io_conf);
 
-	io_conf.pin_bit_mask = 1 << GPIO_OUTPUT_MAINLED_0;
-	gpio_config(&io_conf);
+    io_conf.pin_bit_mask = 1 << GPIO_OUTPUT_MAINLED_0;
+    gpio_config(&io_conf);
 
-	io_conf.pin_bit_mask = 1 << GPIO_OUTPUT_NOUSE1;
-	gpio_config(&io_conf);
+    io_conf.pin_bit_mask = 1 << GPIO_OUTPUT_NOUSE1;
+    gpio_config(&io_conf);
 
-	io_conf.pin_bit_mask = 1 << GPIO_OUTPUT_NOUSE2;
-	gpio_config(&io_conf);
+    io_conf.pin_bit_mask = 1 << GPIO_OUTPUT_NOUSE2;
+    gpio_config(&io_conf);
 
 
-	io_conf.intr_type = GPIO_INTR_ANYEDGE;
-	io_conf.mode = GPIO_MODE_INPUT;
-	io_conf.pin_bit_mask = 1 << GPIO_INPUT_BUTTON;
-	io_conf.pull_down_en = (BUTTON_GPIO_RELEASED == 0);
-	io_conf.pull_up_en = (BUTTON_GPIO_RELEASED == 1);
-	gpio_config(&io_conf);
+    io_conf.intr_type = GPIO_INTR_ANYEDGE;
+    io_conf.mode = GPIO_MODE_INPUT;
+    io_conf.pin_bit_mask = 1 << GPIO_INPUT_BUTTON;
+    io_conf.pull_down_en = (BUTTON_GPIO_RELEASED == 0);
+    io_conf.pull_up_en = (BUTTON_GPIO_RELEASED == 1);
+    gpio_config(&io_conf);
+    gpio_set_intr_type(GPIO_INPUT_BUTTON, GPIO_INTR_ANYEDGE);
 
-	gpio_set_intr_type(GPIO_INPUT_BUTTON, GPIO_INTR_ANYEDGE);
+    
+    io_conf.pin_bit_mask = 1 << GPIO_INPUT_ROTARY_CLK;
+    gpio_config(&io_conf);
+    gpio_set_intr_type(GPIO_INPUT_ROTARY_CLK, GPIO_INTR_ANYEDGE);
+    
+    io_conf.pin_bit_mask = 1 << GPIO_INPUT_ROTARY_DT;
+    gpio_config(&io_conf);
+    gpio_set_intr_type(GPIO_INPUT_ROTARY_DT, GPIO_INTR_ANYEDGE);
 
-	gpio_install_isr_service(0);
 
-	gpio_set_level(GPIO_OUTPUT_MAINLED, MAINLED_GPIO_ON);
-	gpio_set_level(GPIO_OUTPUT_MAINLED_0, 0);
+    //create a queue to handle gpio event from isr
+    gpio_evt_queue = xQueueCreate(10, sizeof(uint32_t));
+    //start gpio task
+    xTaskCreate(gpio_task_example, "gpio_task_example", 2048, NULL, 10, NULL);
+
+    gpio_install_isr_service(0);
+
+    // set initial  levels
+    rotary_clk_state = gpio_get_level(GPIO_INPUT_ROTARY_CLK);
+    rotary_dt_state = gpio_get_level(GPIO_INPUT_ROTARY_DT);
+    
+    //hook isr handler for specific gpio pin
+    gpio_isr_handler_add(GPIO_INPUT_ROTARY_CLK, gpio_isr_handler, (void*) GPIO_INPUT_ROTARY_CLK);
+    gpio_isr_handler_add(GPIO_INPUT_ROTARY_DT, gpio_isr_handler, (void*) GPIO_INPUT_ROTARY_DT);
+    //hook isr handler for specific gpio pin
+    // gpio_isr_handler_add(GPIO_INPUT_IO_1, gpio_isr_handler, (void*) GPIO_INPUT_IO_1);
+
+
+    gpio_set_level(GPIO_OUTPUT_MAINLED, MAINLED_GPIO_ON);
+    gpio_set_level(GPIO_OUTPUT_MAINLED_0, 0);
 
     // setup pwm
     // init gpio subsytem

@@ -16,6 +16,9 @@
  *
  ****************************************************************************/
 
+#include <stdbool.h>
+#include <stdint.h>
+
 //#define CONFIG_TARGET_WITTY_CLOUD
 //#define CONFIG_TARGET_ESP8266_DEVKITC_V1
 #if defined(CONFIG_TARGET_WITTY_CLOUD)
@@ -40,19 +43,17 @@
 
 #else //default
 
-#define GPIO_OUTPUT_NOTIFICATION_LED 2
-#define GPIO_INPUT_BUTTON 5
+#define GPIO_INPUT_BUTTON_A 4
+#define GPIO_INPUT_BUTTON_B 5
 
-#define GPIO_OUTPUT_MAINLED 16
-#define GPIO_OUTPUT_MAINLED_0 13 /* use as ground */
+#define GPIO_OUTPUT_PWM_A 12
+#define GPIO_OUTPUT_PWM_B 14
 
-#define GPIO_OUTPUT_NOUSE1 14
-#define GPIO_OUTPUT_NOUSE2 12
+#define GPIO_INPUT_ROTARY_CLK_A 0
+#define GPIO_INPUT_ROTARY_DT_A 2
 
-#define GPIO_OUTPUT_PWM 4
-
-#define GPIO_INPUT_ROTARY_CLK 12
-#define GPIO_INPUT_ROTARY_DT 14
+#define GPIO_INPUT_ROTARY_CLK_B 13
+#define GPIO_INPUT_ROTARY_DT_B 15
 
 #endif
 
@@ -60,9 +61,16 @@
 #define PWM_MAX_LEVEL 255
 #define PWM_FREQUENCY 100 // Hz
 #define PWM_PERIOD ( 1000000 / PWM_FREQUENCY )
-#define PWM_GAMMA 3.0
-#define PWM_ANIMATION_PERIOD 30 // ms
-#define PWM_ANIMATION_VELOCITY 0.02
+#define MAX_DUTY PWM_PERIOD
+#define MIN_DUTY 275
+#define DELTA_DUTY ( MAX_DUTY - MIN_DUTY )
+#define PWM_GAMMA 2.2
+#define PWM_ANIMATION_PERIOD 35 // ms
+#define PWM_ANIMATION_VELOCITY 0.01
+#define PWM_NUM_CHANNELS 2
+#define PWM_CHANNEL_A 0
+#define PWM_CHANNEL_B 1
+
 
 enum switch_onoff_state {
     SWITCH_OFF = 0,
@@ -72,12 +80,6 @@ enum switch_onoff_state {
 enum main_led_gpio_state {
     MAINLED_GPIO_ON = 1,
     MAINLED_GPIO_OFF = 0,
-};
-
-enum led_animation_mode_list {
-    LED_ANIMATION_MODE_IDLE = 0,
-    LED_ANIMATION_MODE_FAST,
-    LED_ANIMATION_MODE_SLOW,
 };
 
 enum button_gpio_state {
@@ -94,10 +96,40 @@ enum button_event_type {
     BUTTON_SHORT_PRESS = 1,
 };
 
-void change_switch_state(int switch_state);
-void change_switch_level(int level);
+typedef struct pwm_level_data {
+    bool power;
+    uint8_t channel;
+    uint8_t percent;
+    uint32_t target_level;
+    uint32_t current_level;
+    uint32_t current_duty;
+} pwm_level_data_t;
+
+typedef struct rotary_encoder_data {
+    uint8_t clk_state;
+    uint8_t clk_level;
+    uint8_t dt_state;
+    uint8_t dt_level;
+    uint32_t clk_pin;
+    uint32_t dt_pin;
+} rotary_encoder_data_t;
+
+void change_switch_state_a(int switch_state);
+void change_switch_state_b(int switch_state);
+void update_color_info(int color_temp);
+void change_switch_level(pwm_level_data_t* light, int level);
+void change_switch_level_a(int level);
+void change_switch_level_b(int level);
 void button_isr_handler(void *arg);
-int get_button_event(int* button_event_type, int* button_event_count);
+int get_button_event_a(int* button_event_type, int* button_event_count);
+int get_button_event_b(int* button_event_type, int* button_event_count);
 void led_blink(int switch_state, int delay, int count);
 void change_led_mode(int noti_led_mode);
 void iot_gpio_init(void);
+
+pwm_level_data_t* init_pwm_level_data(uint8_t channel);
+rotary_encoder_data_t* init_rotary_encoder_data(uint32_t clk_pin, uint32_t dt_pin);
+
+
+void update_pwm(pwm_level_data_t* data);
+void update_encoder(uint32_t io_num, rotary_encoder_data_t* encoder, pwm_level_data_t* light);
